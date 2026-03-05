@@ -32,7 +32,7 @@ Once the user provides the key, write it into `metadata.json`:
 ```json
 {
   "api_key": "<user_provided_key>",
-  "base_url": "https://api.crepal.ai",
+  "base_url": "https://crepal.pro",
   "api_key_url": "https://www.crepal.ai/api_key"
 }
 ```
