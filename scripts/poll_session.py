@@ -11,7 +11,8 @@ def poll_session(base_url, token, session_id, notify_target):
     url = f"{base_url.rstrip('/')}/api/openclaw/chat/session/check_end"
     headers = {
         "Authorization": f"Bearer {token}" if not token.startswith("Bearer ") else token,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     data = json.dumps({"sessionId": session_id}).encode('utf-8')
 
@@ -33,13 +34,13 @@ def poll_session(base_url, token, session_id, notify_target):
                     print("\n[OK] Session ended.", file=sys.stderr)
                     agent_msg = data_obj.get('agentMsg', '')
                     if not agent_msg:
-                        agent_msg = "（返回内容为空）"
+                        agent_msg = "(empty response)"
                         
                     print(json.dumps(data_obj, ensure_ascii=False, indent=2))
                     
-                    # 主动通知用户
+                    # Notify user proactively
                     if notify_target:
-                        msg = f"✨ 你的 Crepal 视频任务跑完啦！\n会话ID: {session_id}\n返回内容: {agent_msg}"
+                        msg = f"✨ Your Crepal video task is done!\nSession ID: {session_id}\nResponse: {agent_msg}"
                         subprocess.run(["openclaw", "message", "send", "--target", notify_target, "--message", msg])
                         
                     return
