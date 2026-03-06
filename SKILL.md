@@ -28,7 +28,9 @@ Whenever you start a task that takes time (creating, chatting, or generating vid
 
 ## Workflow: Confirming Generation
 
-When the API (via the polling script) returns an `agentMsg` asking the user for confirmation to start generating the video (e.g., "Please confirm whether to start generating the video"), and the user replies with an affirmative response (e.g., "yes", "confirm"):
+**CRITICAL DISTINCTION:** Do not confuse confirming a script with confirming video generation. If the user says "continue", "looks good", or "confirm" in response to a script outline, you MUST use the regular `/api/openclaw/chat/message/send` endpoint.
+
+Only when the user explicitly requests to "start generating the video" OR the agent expressly asks "Should I start rendering/generating the final video now?" and the user agrees:
 1. **DO NOT** use the `/api/openclaw/chat/message/send` endpoint.
 2. **INSTEAD**, use the `/api/openclaw/script/confirm_generate` endpoint with the `sessionId` to trigger the actual video generation.
 3. Extract the `sessionId` from the response and run `scripts/poll_session.py` in the background as usual to track the generation progress.
