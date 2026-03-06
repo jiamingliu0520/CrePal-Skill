@@ -52,6 +52,12 @@ EOF
   echo "==> Initialized metadata.json (config will be populated on first use)."
 fi
 
+# Grant execute permissions to all scripts
+if [ -d "$INSTALL_DIR/scripts" ]; then
+  chmod +x "$INSTALL_DIR/scripts/"*.py
+  echo "==> Granted execute permissions to scripts."
+fi
+
 echo ""
 echo "==> CrePal-Skill installed successfully!"
 echo "    Location: $INSTALL_DIR"
