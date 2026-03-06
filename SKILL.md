@@ -26,6 +26,13 @@ Whenever you start a task that takes time (creating, chatting, or generating vid
 2. Extract the `sessionId` from the response (or from your existing context).
 3. **Run `scripts/poll_session.py` in the background** to poll the session status. Use `exec` with `background=true` so you aren't blocked, and pass `--notify "user:<user_id>"` so the script automatically sends a message to the user when the task is complete.
 
+## Workflow: Confirming Generation
+
+When the API (via the polling script) returns an `agentMsg` asking the user for confirmation to start generating the video (e.g., "Please confirm whether to start generating the video"), and the user replies with an affirmative response (e.g., "yes", "confirm"):
+1. **DO NOT** use the `/api/openclaw/chat/message/send` endpoint.
+2. **INSTEAD**, use the `/api/openclaw/script/confirm_generate` endpoint with the `sessionId` to trigger the actual video generation.
+3. Extract the `sessionId` from the response and run `scripts/poll_session.py` in the background as usual to track the generation progress.
+
 ## Workflow: Insufficient Credits & Recharge
 
 If at any point the agent message (`agentMsg`) or any API response indicates insufficient credits (e.g., "insufficient credits", "please recharge"):

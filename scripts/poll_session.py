@@ -17,6 +17,7 @@ def poll_session(base_url, token, session_id, notify_target):
     data = json.dumps({"sessionId": session_id}).encode('utf-8')
 
     print(f"Polling {url} for session {session_id} every 5 seconds...", file=sys.stderr)
+    time.sleep(5)
     
     while True:
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
