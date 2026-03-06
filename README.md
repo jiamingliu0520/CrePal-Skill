@@ -55,17 +55,16 @@ Visit [crepal.ai](https://crepal.ai) to register or log in and generate your API
 
 ### 2. Install the Skill
 
-Clone this repository into your OpenClaw skills directory:
+**One-line install (recommended):** The script installs to `~/.openclaw/skills/crepal`. OpenClaw will pick it up automatically — no copying or extra configuration.
 
 ```bash
-git clone https://github.com/jiamingliu0520/CrePal-Skill.git \
-  ~/.openclaw/workspace/skills/crepal-video-creator
+curl -fsSL https://raw.githubusercontent.com/jiamingliu0520/CrePal-Skill/main/install.sh | bash
 ```
 
-Or run the install script:
+Or clone into the same path manually:
 
 ```bash
-bash install.sh
+git clone https://github.com/jiamingliu0520/CrePal-Skill.git ~/.openclaw/skills/crepal
 ```
 
 ### 3. Configure
@@ -104,7 +103,7 @@ See [SKILL.md](SKILL.md) for request/response details.
 ```
 crepal-video-creator/
 ├── SKILL.md              # Skill definition (read by OpenClaw / AI)
-├── install.sh            # One-line installer
+├── install.sh            # One-line installer (default: ~/.openclaw/skills/crepal; set CREPAL_SKILL_DIR to override)
 ├── README.md
 └── scripts/
     └── poll_session.py   # Poll session status; optionally notify user when done
