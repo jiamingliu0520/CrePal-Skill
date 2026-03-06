@@ -38,14 +38,29 @@ else
   exit 1
 fi
 
+# Initialize metadata.json if it doesn't contain a real api_key yet
+METADATA_FILE="$INSTALL_DIR/metadata.json"
+if [ ! -f "$METADATA_FILE" ] || ! grep -q '"api_key"' "$METADATA_FILE" 2>/dev/null; then
+  cat > "$METADATA_FILE" <<'EOF'
+{
+  "api_key": "",
+  "auto_pilot": false,
+  "last_session_id": ""
+}
+EOF
+  echo "==> Initialized metadata.json (config will be populated on first use)."
+fi
+
 echo ""
 echo "==> CrePal-Skill installed successfully!"
 echo "    Location: $INSTALL_DIR"
 echo ""
 if [ -n "${IS_DEFAULT_PATH:-}" ]; then
   echo "    Next: In OpenClaw, add or enable this skill (e.g. in Skills settings), then start creating AI videos!"
+  echo "    On first use, the agent will ask for your CrePal API token and auto-pilot preference."
 else
   echo "    Ensure this path is in OpenClaw's skills load path (e.g. ~/.openclaw/skills or workspace ./skills)."
   echo "    Then in OpenClaw, add or enable this skill in your Skills settings."
+  echo "    On first use, the agent will ask for your CrePal API token and auto-pilot preference."
   echo ""
 fi

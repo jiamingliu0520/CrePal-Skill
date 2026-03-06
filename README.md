@@ -20,30 +20,59 @@
 
 **CrePal** is a one-stop AI video editing and generation tool. This Skill guides the AI and the user through setting up and using the CrePal API for script writing, video generation, and confirm-and-render workflows.
 
-Before using it, get an **API access token** by visiting [crepal.ai](https://crepal.ai) to register or log in. Store the token securely and send it in the `Authorization: Bearer <TOKEN>` header for all subsequent requests.
+Before using it, get an **API access token** by visiting [crepal.ai](https://crepal.ai) to register or log in. The token is stored in `metadata.json` and sent in the `Authorization: Bearer <TOKEN>` header for all subsequent requests.
+
+<br>
+
+## ✨ Key Features
+
+### 🤖 Auto-Pilot Mode
+
+After first-time setup, the agent will ask if you want to enable **auto-pilot mode**. When enabled:
+
+- You just describe what video you want in natural language
+- The agent **automatically handles all of CrePal's questions** — choosing styles, confirming scripts, making sensible decisions
+- The entire flow from script creation to final video rendering runs **in one shot**
+- You get notified when the video is done
+
+### 🔧 Manual Mode
+
+Prefer more control? In manual mode, the agent pauses at each step and presents CrePal's questions/drafts for your review before proceeding.
+
+### 💾 Persistent Configuration
+
+User settings (API key, auto-pilot preference, last session) are stored in `metadata.json` — no need to re-enter your token every time.
 
 <br>
 
 ## Workflow Overview
 
-### Asynchronous tasks (create session, send message, confirm script & generate)
+### Auto-Pilot (fully automated)
 
-When starting a task that takes time (creating a session, chatting, or generating video):
+```
+You: "Make me a 30-second product teaser for a coffee brand"
+  ↓
+Agent: Creates session → Auto-answers CrePal's questions →
+       Confirms script → Triggers video generation → Notifies you when done ✅
+```
 
-1. Call the relevant API:
-   - Create session: `POST https://crepal.ai/api/openclaw/chat/session/create`
-   - Send message: `POST https://crepal.ai/api/openclaw/chat/message/send`
-   - Confirm script & generate: `POST https://crepal.ai/api/openclaw/script/confirm_generate`
-2. Extract the `sessionId` from the response.
-3. **Run `scripts/poll_session.py` in the background** to poll session status. Use `exec` with `background=true` so you aren't blocked, and pass `--notify "user:<user_id>"` so the script notifies the user when the task is complete.
+### Manual (step-by-step)
+
+```
+You: "Make me a 30-second product teaser for a coffee brand"
+  ↓
+Agent: Creates session → Shows you CrePal's questions →
+       Waits for your input → Sends your reply → ... →
+       Asks if you want to generate → Triggers generation → Notifies you ✅
+```
 
 ### Insufficient credits & recharge
 
-If the API response or agent message indicates insufficient credits (e.g. "insufficient credits", "please recharge"):
+If the API response indicates insufficient credits:
 
-1. **Immediately** call the **Get Subscription Config** endpoint: `POST https://crepal.ai/api/openclaw/subscription/config`.
-2. Parse the returned `subscriptions` list and present the plans (price, description, privileges) and their `stripeLink` to the user for top-up.
-3. Once the user confirms they have recharged, resume the task via `POST https://crepal.ai/api/openclaw/chat/message/send` (e.g. send "Recharged, continue" to the active `sessionId`).
+1. **Immediately** calls the **Get Subscription Config** endpoint: `POST https://crepal.ai/api/openclaw/subscription/config`.
+2. Presents the plans (price, description, privileges) and `stripeLink` to you for top-up.
+3. Once you confirm recharge, resumes the task.
 
 <br>
 
@@ -67,9 +96,12 @@ Or clone into the same path manually:
 git clone https://github.com/jiamingliu0520/CrePal-Skill.git ~/.openclaw/skills/crepal
 ```
 
-### 3. Configure
+### 3. First-Run Setup
 
-The first time you ask your agent to create a video, it will prompt you for the API token. Provide it and the agent will store it securely and use `Authorization: Bearer <TOKEN>` for subsequent requests.
+The first time you invoke the skill, the agent will:
+1. Ask for your CrePal API token and store it in `metadata.json`
+2. Ask whether you prefer **auto-pilot** or **manual** mode
+3. Save your preferences for future sessions
 
 ### 4. Create a video
 
@@ -77,7 +109,7 @@ Describe what you want in natural language, for example:
 
 > *"Help me generate a 30-second product teaser script."*
 
-The agent will create a session, send messages, and when needed run `poll_session.py` in the background, notifying you via OpenClaw when the task is done.
+The agent will handle the rest based on your mode preference.
 
 <br>
 
@@ -103,20 +135,28 @@ See [SKILL.md](SKILL.md) for request/response details.
 ```
 crepal-video-creator/
 ├── SKILL.md              # Skill definition (read by OpenClaw / AI)
-├── install.sh            # One-line installer (default: ~/.openclaw/skills/crepal; set CREPAL_SKILL_DIR to override)
+├── metadata.json         # Persistent config (API key, preferences)
+├── install.sh            # One-line installer
 ├── README.md
 └── scripts/
-    └── poll_session.py   # Poll session status; optionally notify user when done
+    └── poll_session.py   # Poll session status; smart openclaw discovery; notify user when done
 ```
+
+### `metadata.json`
+
+Stores user configuration persistently:
+- `api_key` — CrePal API access token
+- `auto_pilot` — Whether auto-pilot mode is enabled
+- `last_session_id` — Most recent session ID for easy resumption
 
 ### `scripts/poll_session.py`
 
-Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true`, printing the final `agentMsg`. Can optionally notify the user via OpenClaw.
+Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true`, printing the final `agentMsg`. Features smart `openclaw` executable discovery (PATH, NVM, common locations) for reliable notifications.
 
 **Usage (run in background):**
 
 ```bash
-python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --notify "user:<USER_ID>" &
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --notify "user:<USER_ID>"
 ```
 
 <br>
@@ -132,13 +172,16 @@ python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --n
 ## FAQ
 
 **Q: How long does video generation take?**  
-It depends on complexity and queue. You can use polling or `poll_session.py` to get notified when the task is done.
+It depends on complexity and queue. The `poll_session.py` script monitors progress and notifies you when done.
 
 **Q: What if I run out of credits?**  
-The agent will call the subscription config endpoint and show you the plans and Stripe top-up links. After recharging, send "Recharged, continue" to the current session to resume.
+The agent will call the subscription config endpoint and show you the plans and Stripe top-up links. After recharging, the task resumes automatically.
+
+**Q: Can I switch between auto-pilot and manual mode?**  
+Yes! Just tell the agent "switch to manual mode" or "switch to auto-pilot". Your preference is saved in `metadata.json`.
 
 **Q: Can I use this without OpenClaw?**  
-Yes. `poll_session.py` is a standalone script you can run from the command line. The full experience (session creation, messaging, automatic notification) works with OpenClaw and this Skill.
+Yes. `poll_session.py` is a standalone script you can run from the command line. The full experience (session creation, messaging, automatic notification) works best with OpenClaw and this Skill.
 
 <br>
 
