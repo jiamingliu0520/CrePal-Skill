@@ -43,12 +43,9 @@ echo "==> CrePal-Skill installed successfully!"
 echo "    Location: $INSTALL_DIR"
 echo ""
 if [ -n "${IS_DEFAULT_PATH:-}" ]; then
-  echo "    OpenClaw will load this skill automatically. Open a new session or run:"
-  echo "      openclaw gateway restart"
-  echo ""
-  echo "    Then start creating AI videos!"
+  echo "    Next: In OpenClaw, add or enable this skill (e.g. in Skills settings), then start creating AI videos!"
 else
   echo "    Ensure this path is in OpenClaw's skills load path (e.g. ~/.openclaw/skills or workspace ./skills)."
-  echo "    Then open a new session or run: openclaw gateway restart"
+  echo "    Then in OpenClaw, add or enable this skill in your Skills settings."
   echo ""
 fi
