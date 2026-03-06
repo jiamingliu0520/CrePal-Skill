@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-poll_session.py — Poll Crepal session status and notify user when done.
+poll_session.py — Poll Crepal session status, wake up OpenClaw, and notify user.
 
 Features:
   - Polls the check_end endpoint every 5 seconds until the session ends.
+  - CALLBACK: Sends a message back into the OpenClaw conversation to wake up the
+    AI agent, enabling true auto-pilot without human intervention.
+  - NOTIFY: Optionally sends a user-facing notification via openclaw CLI.
   - Smart discovery of the `openclaw` executable (PATH, NVM, common locations).
-  - --openclaw-path override for explicit control.
-  - Robust error handling: notification failure never crashes the main flow.
+  - Robust error handling: callback/notification failure never crashes the main flow.
 """
 import sys
 import os
@@ -70,10 +72,9 @@ def find_openclaw_executable(explicit_path=None):
             print(f"[discovery] Found openclaw at common path: {p}", file=sys.stderr)
             return p
 
-    # 5. Relative to this script (npm global structure: .../lib/node_modules/.../scripts/poll_session.py → .../bin/openclaw)
+    # 5. Relative to this script (npm global structure)
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        # Walk up to find a bin/ sibling
         candidate = os.path.normpath(os.path.join(script_dir, "..", "..", "..", "bin", "openclaw"))
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             print(f"[discovery] Found openclaw relative to script: {candidate}", file=sys.stderr)
@@ -85,12 +86,81 @@ def find_openclaw_executable(explicit_path=None):
     return None
 
 
+def _build_env(openclaw_path):
+    """Build a subprocess env dict with the openclaw bin dir injected into PATH."""
+    env = os.environ.copy()
+    if openclaw_path and os.path.isabs(openclaw_path):
+        bin_dir = os.path.dirname(openclaw_path)
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    return env
+
+
+def _run_openclaw_cmd(openclaw_path, args_list, label="openclaw"):
+    """Run an openclaw CLI command. Returns True on success, False on failure. Never raises."""
+    cmd = [openclaw_path] + args_list
+    print(f"[{label}] Executing: {' '.join(cmd)}", file=sys.stderr)
+
+    try:
+        env = _build_env(openclaw_path)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+        if result.returncode == 0:
+            print(f"[{label}] Success. stdout: {result.stdout.strip()}", file=sys.stderr)
+            return True
+        else:
+            print(
+                f"[{label}] Failed. exit_code={result.returncode}\n"
+                f"  stderr: {result.stderr.strip()}",
+                file=sys.stderr,
+            )
+            return False
+    except FileNotFoundError:
+        print(f"[{label}] Error: Executable not found at '{cmd[0]}'.", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"[{label}] Error: {e}", file=sys.stderr)
+        return False
+
+
 # ---------------------------------------------------------------------------
-# Notification helper
+# Callback: Wake up OpenClaw by injecting a message into the conversation
+# ---------------------------------------------------------------------------
+
+def send_callback(openclaw_path, callback_target, session_id, agent_msg):
+    """
+    Send a structured message INTO the OpenClaw conversation to wake up the AI agent.
+
+    This is the KEY mechanism for auto-pilot: when the polling script detects that
+    CrePal has finished processing, it injects a message into the chat. OpenClaw's
+    message-receive pipeline picks it up, waking the AI agent, who then reads the
+    agentMsg and continues the auto-pilot decision tree.
+    """
+    if not openclaw_path:
+        print("[callback] Skipping callback: openclaw executable not found.", file=sys.stderr)
+        return
+
+    # Structured message that the AI agent can parse and act on
+    callback_msg = (
+        f"[CREPAL_CALLBACK] Crepal session polling complete.\n"
+        f"session_id: {session_id}\n"
+        f"agentMsg: {agent_msg}\n"
+        f"---\n"
+        f"Please continue the auto-pilot workflow: read the agentMsg above and follow the Decision Tree in SKILL.md."
+    )
+
+    _run_openclaw_cmd(
+        openclaw_path,
+        ["message", "send", "--target", callback_target, "--message", callback_msg],
+        label="callback",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Notification: User-facing message (nice-to-have, separate from callback)
 # ---------------------------------------------------------------------------
 
 def send_notification(openclaw_path, notify_target, session_id, agent_msg):
-    """Send a notification via openclaw CLI. Never raises — logs errors to stderr."""
+    """Send a user-facing notification via openclaw CLI. Never raises."""
     if not openclaw_path:
         print("[notify] Skipping notification: openclaw executable not found.", file=sys.stderr)
         return
@@ -100,37 +170,19 @@ def send_notification(openclaw_path, notify_target, session_id, agent_msg):
         f"Session ID: {session_id}\n"
         f"Response: {agent_msg}"
     )
-    cmd = [openclaw_path, "message", "send", "--target", notify_target, "--message", msg]
-    print(f"[notify] Executing: {' '.join(cmd)}", file=sys.stderr)
 
-    try:
-        # Inject the executable's directory into PATH for the subprocess
-        env = os.environ.copy()
-        if os.path.isabs(openclaw_path):
-            bin_dir = os.path.dirname(openclaw_path)
-            env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
-
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-
-        if result.returncode == 0:
-            print(f"[notify] Notification sent successfully. stdout: {result.stdout.strip()}", file=sys.stderr)
-        else:
-            print(
-                f"[notify] Failed to send notification. exit_code={result.returncode}\n"
-                f"  stderr: {result.stderr.strip()}",
-                file=sys.stderr,
-            )
-    except FileNotFoundError:
-        print(f"[notify] Error: Executable not found at '{cmd[0]}'.", file=sys.stderr)
-    except Exception as e:
-        print(f"[notify] Error sending notification: {e}", file=sys.stderr)
+    _run_openclaw_cmd(
+        openclaw_path,
+        ["message", "send", "--target", notify_target, "--message", msg],
+        label="notify",
+    )
 
 
 # ---------------------------------------------------------------------------
 # Main polling loop
 # ---------------------------------------------------------------------------
 
-def poll_session(base_url, token, session_id, notify_target, openclaw_path_override):
+def poll_session(base_url, token, session_id, notify_target, callback_target, openclaw_path_override):
     url = f"{base_url.rstrip('/')}/api/openclaw/chat/session/check_end"
     headers = {
         "Authorization": f"Bearer {token}" if not token.startswith("Bearer ") else token,
@@ -140,45 +192,54 @@ def poll_session(base_url, token, session_id, notify_target, openclaw_path_overr
     data = json.dumps({"sessionId": session_id}).encode("utf-8")
 
     # Resolve openclaw executable once, before entering the loop
-    openclaw_bin = find_openclaw_executable(openclaw_path_override) if notify_target else None
+    need_openclaw = notify_target or callback_target
+    openclaw_bin = find_openclaw_executable(openclaw_path_override) if need_openclaw else None
 
     print(f"Polling {url} for session {session_id} every 5 seconds...", file=sys.stderr)
+    if callback_target:
+        print(f"  Callback target: {callback_target} (will wake up OpenClaw on completion)", file=sys.stderr)
+    if notify_target:
+        print(f"  Notify target: {notify_target} (will send user notification on completion)", file=sys.stderr)
     time.sleep(5)
-
+    
     while True:
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req) as response:
                 res_body = response.read().decode("utf-8")
                 res_json = json.loads(res_body)
-
+                
                 if "error" in res_json and res_json["error"].get("code") != 0:
                     print(f"\nAPI Error: {res_json['error']}", file=sys.stderr)
                     sys.exit(1)
-
+                
                 data_obj = res_json.get("data", {})
                 if data_obj.get("isEnded") is True:
                     print("\n[OK] Session ended.", file=sys.stderr)
                     agent_msg = data_obj.get("agentMsg", "") or "(empty response)"
-
-                    # Always output result to stdout (consumed by the caller / agent)
+                        
+                    # 1. Always output result to stdout (consumed by the caller)
                     print(json.dumps(data_obj, ensure_ascii=False, indent=2))
+                    
+                    # 2. CALLBACK: Wake up OpenClaw agent (critical for auto-pilot)
+                    if callback_target:
+                        send_callback(openclaw_bin, callback_target, session_id, agent_msg)
 
-                    # Notify user (best-effort, never crashes)
+                    # 3. NOTIFY: User-facing notification (nice-to-have)
                     if notify_target:
                         send_notification(openclaw_bin, notify_target, session_id, agent_msg)
-
+                        
                     return
                 else:
                     print(".", end="", flush=True, file=sys.stderr)
-
+        
         except urllib.error.HTTPError as e:
             print(f"\nHTTP Error {e.code}: {e.read().decode('utf-8')}", file=sys.stderr)
             sys.exit(1)
         except Exception as e:
             print(f"\nError: {e}", file=sys.stderr)
             sys.exit(1)
-
+            
         time.sleep(5)
 
 
@@ -187,16 +248,35 @@ def poll_session(base_url, token, session_id, notify_target, openclaw_path_overr
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Poll Crepal Session")
+    parser = argparse.ArgumentParser(
+        description="Poll Crepal Session — with callback to wake up OpenClaw agent",
+        epilog="Example: python3 poll_session.py https://crepal.ai TOKEN SESSION_ID --callback user:ou_xxx --notify user:ou_xxx",
+    )
     parser.add_argument("base_url", help="Base URL (e.g. https://crepal.ai)")
     parser.add_argument("token", help="Auth Token")
     parser.add_argument("session_id", help="Session ID")
-    parser.add_argument("--notify", help="OpenClaw target ID to notify when done (e.g., user:ou_xxx)")
+    parser.add_argument(
+        "--callback",
+        help="OpenClaw target to send callback message to (wakes up the AI agent for auto-pilot). e.g. user:ou_xxx",
+        default=None,
+    )
+    parser.add_argument(
+        "--notify",
+        help="OpenClaw target to send user-facing notification to. e.g. user:ou_xxx",
+        default=None,
+    )
     parser.add_argument(
         "--openclaw-path",
         help="Absolute path to openclaw executable (optional, auto-discovered if omitted)",
         default=None,
     )
-
+    
     args = parser.parse_args()
-    poll_session(args.base_url, args.token, args.session_id, args.notify, args.openclaw_path)
+    poll_session(
+        args.base_url,
+        args.token,
+        args.session_id,
+        args.notify,
+        args.callback,
+        args.openclaw_path,
+    )

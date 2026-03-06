@@ -1,2 +1,19 @@
+# macOS
 .DS_Store
+
+# User config (contains API key)
 metadata.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

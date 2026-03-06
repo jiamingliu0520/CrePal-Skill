@@ -151,12 +151,15 @@ Stores user configuration persistently:
 
 ### `scripts/poll_session.py`
 
-Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true`, printing the final `agentMsg`. Features smart `openclaw` executable discovery (PATH, NVM, common locations) for reliable notifications.
+Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true`. Features:
+- **Callback wake-up** (`--callback`) — Injects a `[CREPAL_CALLBACK]` message into the conversation to wake up the AI agent, enabling true auto-pilot without human intervention
+- **User notification** (`--notify`) — Sends a user-facing notification when the task is done
+- **Smart openclaw discovery** — Finds the `openclaw` executable via PATH, NVM, common locations
 
 **Usage (run in background):**
 
 ```bash
-python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --notify "user:<USER_ID>"
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --callback "user:<USER_ID>" --notify "user:<USER_ID>"
 ```
 
 <br>
