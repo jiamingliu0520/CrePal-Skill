@@ -44,6 +44,7 @@ if [ ! -f "$METADATA_FILE" ] || ! grep -q '"api_key"' "$METADATA_FILE" 2>/dev/nu
   cat > "$METADATA_FILE" <<'EOF'
 {
   "api_key": "",
+  "user_channel": "",
   "auto_pilot": false,
   "last_session_id": ""
 }

@@ -41,7 +41,7 @@ Prefer more control? In manual mode, the agent pauses at each step and presents 
 
 ### 💾 Persistent Configuration
 
-User settings (API key, auto-pilot preference, last session) are stored in `metadata.json` — no need to re-enter your token every time.
+User settings (API key, messaging channel, auto-pilot preference, last session) are stored in `metadata.json` — no need to re-enter your info every time.
 
 <br>
 
@@ -99,9 +99,10 @@ git clone https://github.com/jiamingliu0520/CrePal-Skill.git ~/.openclaw/skills/
 ### 3. First-Run Setup
 
 The first time you invoke the skill, the agent will:
-1. Ask for your CrePal API token and store it in `metadata.json`
-2. Ask whether you prefer **auto-pilot** or **manual** mode
-3. Save your preferences for future sessions
+1. Ask for your **messaging channel address** (e.g. Telegram chat ID) so it can send you callbacks and notifications
+2. Ask for your **CrePal API token** and store it in `metadata.json`
+3. Ask whether you prefer **auto-pilot** or **manual** mode
+4. Save all your settings for future sessions
 
 ### 4. Create a video
 
@@ -146,6 +147,7 @@ crepal-video-creator/
 
 Stores user configuration persistently:
 - `api_key` — CrePal API access token
+- `user_channel` — User's messaging channel address (e.g. `telegram:123456789`), used to send callbacks and notifications
 - `auto_pilot` — Whether auto-pilot mode is enabled
 - `last_session_id` — Most recent session ID for easy resumption
 
@@ -159,7 +161,7 @@ Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true
 **Usage (run in background):**
 
 ```bash
-python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --callback "user:<USER_ID>" --notify "user:<USER_ID>"
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --callback "telegram:123456789" --notify "telegram:123456789"
 ```
 
 <br>
