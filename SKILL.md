@@ -61,20 +61,27 @@ If `api_key`, `user_channel`, or both are empty:
 
 Active when `auto_pilot` is `true`, or the user explicitly asks for full automation. You complete the entire pipeline without pausing for user input.
 
-### Step 1 — Create Session
+### ⚠️ Execution Model — FOREGROUND, NOT BACKGROUND
+
+**You MUST run `poll_session.py` in the foreground** (i.e. `background: false` or simply `exec`). Wait for it to finish and capture its stdout. Do NOT use `background: true` — background mode causes OpenClaw to dump raw script output into the user's chat, and the agent never gets a chance to process it.
+
+The script outputs **only the `agentMsg` text** to stdout (no JSON, no metadata). You capture this text, process it via the Decision Tree, and act on it — all in the same turn.
+
+### Step 1 — Create Session & Poll
 
 1. `POST /api/openclaw/chat/session/create` with the user's video description as `content`.
 2. Save `sessionId` → `metadata.json` → `last_session_id`.
-3. Run `poll_session.py` in background with **only `--callback`** (no `--notify` during intermediate rounds — you talk to the user yourself).
-4. Yield control. A `[CREPAL_CALLBACK]` message will wake you up.
+3. Tell the user briefly: "正在和 CrePal 沟通你的视频需求，请稍等…"
+4. **Run `poll_session.py` in FOREGROUND** (no `--callback`, no `--notify`):
+   ```
+   python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>"
+   ```
+5. **Capture stdout** — it contains only the `agentMsg` text from CrePal.
+6. **Go to Step 2** with the captured `agentMsg`.
 
-### Step 2 — Handle Callback (SILENT & IMMEDIATE)
+### Step 2 — Process `agentMsg` (SILENT & IMMEDIATE)
 
-When you see `[CREPAL_CALLBACK]{"sessionId":"...","agentMsg":"..."}`:
-
-1. **Parse** the JSON. Extract `agentMsg`.
-2. **Hide** — never show any part of the callback to the user.
-3. **Classify & Act** — go through cases A → E in order. Execute the **first** match.
+You now have the `agentMsg` text. **Do NOT show it raw to the user.** Classify it and act:
 
 #### Case A — Credit Error
 `agentMsg` mentions "insufficient credits", "余额不足", etc.
@@ -82,45 +89,50 @@ When you see `[CREPAL_CALLBACK]{"sessionId":"...","agentMsg":"..."}`:
 
 #### Case B — Script Ready → CALL `confirm_generate` NOW 🔴
 Match if **ANY** of these are true:
-- Keywords present: "generate", "render", "ready to produce", "开始生成", "准备生成", "是否生成视频"
+- Keywords: "generate", "render", "ready to produce", "开始生成", "准备生成", "是否生成视频"
 - Script is "confirmed", "finalized", "complete", "done", "完成", "确认"
-- CrePal says "anything else?", "want to proceed?", "shall I continue?" after showing a script
-- **3+ callback rounds have passed** and the latest `agentMsg` has no new questions
-- You replied "looks good" / "confirmed" last round and this round has no new questions
+- CrePal says "anything else?", "want to proceed?", "shall I continue?" after a script
+- **3+ rounds have passed** and no new questions in the latest `agentMsg`
+- You replied "looks good" last round and no new questions came back
 
-→ **IMMEDIATELY go to Step 3.** Do NOT reply via `message/send`. Do NOT ask the user. Call the `confirm_generate` API right now.
+→ **IMMEDIATELY go to Step 3.** Do NOT reply via `message/send`. Call the `confirm_generate` API right now.
 
-**⚠️ When in doubt between B and C/D, always choose B.** It's better to start generating slightly early than to loop forever. The user wants a video.
+**⚠️ When in doubt between B and C/D, always choose B.** Better to generate early than loop forever.
 
 #### Case C — CrePal Asks a Question
-`agentMsg` asks a question or offers choices (e.g. "What style?", "(A)... (B)... (C)...").
-→ Compose a direct answer based on the user's original description. Send via `message/send`. Re-poll with `--callback`.
+`agentMsg` asks a question or offers choices (e.g. "What style?", "(A)... (B)...").
+→ Compose a direct answer based on the user's original description. Send via `message/send`. Then **re-poll** (go to Step 2½).
 
 #### Case D — Script Draft Needs Feedback
-`agentMsg` shows a draft and asks "what do you think?" / "does this look good?"
-→ Reply "Looks great, please continue" via `message/send`. Re-poll.
+`agentMsg` shows a draft and asks "what do you think?"
+→ Reply "Looks great, please continue" via `message/send`. Then **re-poll**.
 
 #### Case E — Anything Else
-→ Reply "Looks good, please continue" via `message/send`. Re-poll. Never stay silent.
+→ Reply "Looks good, please continue" via `message/send`. Then **re-poll**. Never stay silent.
 
----
+### Step 2½ — Re-poll After Reply (Cases C/D/E)
 
-**After acting (all cases):** tell the user in **one friendly sentence** what you did. No technical details.
+After sending a reply to CrePal:
 
-**After C/D/E:** re-run `poll_session.py` with `--callback`, yield, wait for next callback → return to Step 2.
+1. Tell the user in **one friendly sentence** what you did (e.g. "我帮你选了温馨风格，正在等 CrePal 回复…").
+2. **Run `poll_session.py` in FOREGROUND again** (same command as Step 1, no flags).
+3. Capture stdout → go back to **Step 2** with the new `agentMsg`.
+4. **Repeat** until you reach Case A or B.
 
-**🛑 YIELD SELF-CHECK — ask yourself before every yield:**
-> "Have I gone through 3+ rounds? Is the script probably done? Should I call `confirm_generate` instead of looping again?"
-> If the answer is "maybe yes" → call `confirm_generate` (Step 3). Do not loop again.
+**🛑 LOOP GUARD:** If you've been through 3+ rounds and the latest `agentMsg` has no clear new questions → treat it as Case B and call `confirm_generate`.
 
 ### Step 3 — Confirm & Generate 🔴
 
-This is the step that **produces the video**. Without it, the user gets nothing.
+This step **produces the video**. Without it, the user gets nothing.
 
 1. `POST /api/openclaw/script/confirm_generate` with `{"sessionId": "..."}`.
    This is a **dedicated API call** — NOT a chat message via `message/send`.
-2. Run `poll_session.py` with **`--callback` and `--notify`** (both appropriate now — the job is finishing).
-3. Tell the user: "视频正在生成中！完成后我会通知你 🎬"
+2. Tell the user: "剧本已确认，视频正在生成中！完成后我会通知你 🎬"
+3. **Run `poll_session.py` in FOREGROUND** with `--notify` to send the user a notification when done:
+   ```
+   python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>" --notify "<CHANNEL>"
+   ```
+4. When the script finishes, the user has already been notified. You can add a friendly closing message.
 
 ---
 
@@ -130,8 +142,9 @@ Active when `auto_pilot` is `false`. You pause at each step for user input.
 
 1. Call the relevant API endpoint (create session / send message / confirm generate).
 2. Save `sessionId` to `metadata.json`.
-3. Run `poll_session.py` with `--callback` and `--notify`.
-4. When callback arrives, present the `agentMsg` content to the user (in friendly language). Wait for their input.
+3. **Run `poll_session.py` in FOREGROUND** (no flags). Capture the `agentMsg` from stdout.
+4. Present the `agentMsg` content to the user **in friendly language** (never raw). Wait for their input.
+5. Optionally also pass `--notify "<CHANNEL>"` if you want the user to get a push notification.
 
 **Confirming generation in manual mode:**
 - User says "looks good" / "continue" about a **script** → use `message/send`.
@@ -201,20 +214,20 @@ No body. Returns `canPurchase`, `products[]` with `price`, `credits`, `stripeLin
 Persistent config. Read on startup, write whenever values change.
 
 ### `scripts/poll_session.py`
-Polls `check_end` every 5 s until `isEnded` is true. Key flags:
+Polls `check_end` every 5 s until `isEnded` is true.
 
-| Flag | Purpose |
-|------|---------|
-| `--callback <channel>` | Injects `[CREPAL_CALLBACK]{...}` into the conversation to wake up the AI agent. **Always use in auto-pilot.** |
-| `--notify <channel>` | Sends a user-facing notification. **Only use in manual mode or the final generate step.** |
-| `--openclaw-path <path>` | Override auto-discovery of the `openclaw` executable. |
+**Output behavior:**
+- **No flags (foreground mode):** prints only `agentMsg` text to stdout. All debug to stderr. **This is the primary mode.**
+- **`--callback <ch>`:** stdout is **completely silent**. Sends `[CREPAL_CALLBACK]` message via openclaw CLI. (Fallback mode.)
+- **`--notify <ch>`:** sends a short user-facing notification via openclaw CLI.
+- **`--openclaw-path <path>`:** override auto-discovery of openclaw executable.
 
-`<channel>` = `user_channel` from `metadata.json`.
+`<ch>` = `user_channel` from `metadata.json`.
 
 ```bash
-# Auto-pilot (intermediate rounds)
-python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>" --callback "<CHANNEL>"
+# Primary: foreground, agent captures stdout (use this in auto-pilot)
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>"
 
-# Auto-pilot (final generate) or Manual mode
-python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>" --callback "<CHANNEL>" --notify "<CHANNEL>"
+# Final generate step: foreground + user notification
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>" --notify "<CHANNEL>"
 ```

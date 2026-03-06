@@ -153,21 +153,24 @@ Stores user configuration persistently:
 
 ### `scripts/poll_session.py`
 
-Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true`. Features:
-- **Callback wake-up** (`--callback`) — Injects a `[CREPAL_CALLBACK]` message into the conversation to wake up the AI agent, enabling true auto-pilot without human intervention
-- **User notification** (`--notify`) — Sends a user-facing notification when the task is done
-- **Smart openclaw discovery** — Finds the `openclaw` executable via PATH, NVM, common locations
+Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true`.
 
-**Usage — Auto-Pilot (callback only, no --notify during intermediate rounds):**
+**Output modes:**
+- **Foreground (no flags)** — prints only the `agentMsg` text to stdout. All debug info goes to stderr. This is the primary mode used by the agent.
+- **`--callback <channel>`** — stdout is completely silent; sends a `[CREPAL_CALLBACK]` message via openclaw CLI (fallback mode).
+- **`--notify <channel>`** — sends a short user-facing notification when done.
+- **Smart openclaw discovery** — finds the `openclaw` executable via PATH, NVM, common locations.
+
+**Usage — Primary (foreground, agent captures stdout):**
 
 ```bash
-python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --callback "telegram:123456789"
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>"
 ```
 
-**Usage — Final generate step or Manual mode (callback + notify):**
+**Usage — Final generate step (foreground + user notification):**
 
 ```bash
-python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --callback "telegram:123456789" --notify "telegram:123456789"
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --notify "telegram:123456789"
 ```
 
 <br>
