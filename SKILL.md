@@ -74,22 +74,51 @@ When you see `[CREPAL_CALLBACK]{"sessionId":"...","agentMsg":"..."}`:
 
 1. **Parse** the JSON. Extract `agentMsg`.
 2. **Hide** — never show any part of the callback to the user.
-3. **Classify & Act** per the table below:
+3. **Classify & Act** — go through cases A → E in order. Execute the **first** match.
 
-| Priority | Condition | Action |
-|----------|-----------|--------|
-| **A** | Credit error ("insufficient credits", "余额不足", etc.) | Exit auto-pilot → Recharge workflow. |
-| **B** | Script is finalized / CrePal asks to generate / 3+ rounds with no new questions / you confirmed last round and no new questions came back. Keywords: "generate", "render", "完成", "确认", "anything else?", etc. | **Call `confirm_generate`** → go to Step 3. When in doubt, choose this — better to generate than loop forever. |
-| **C** | CrePal asks a question or offers choices | Compose a direct answer based on the user's original description. Send via `message/send`. Re-poll with `--callback`. |
-| **D** | Script draft shown, asks for feedback | Reply "Looks great, please continue" via `message/send`. Re-poll. |
-| **E** | Anything else | Reply "Looks good, please continue" via `message/send`. Re-poll. |
+#### Case A — Credit Error
+`agentMsg` mentions "insufficient credits", "余额不足", etc.
+→ **Exit auto-pilot.** Go to Recharge workflow.
 
-4. **Brief update** — tell the user in one friendly sentence what you did. No technical details.
-5. **After C/D/E:** re-run `poll_session.py` with `--callback`, yield, wait for next callback → return to Step 2.
+#### Case B — Script Ready → CALL `confirm_generate` NOW 🔴
+Match if **ANY** of these are true:
+- Keywords present: "generate", "render", "ready to produce", "开始生成", "准备生成", "是否生成视频"
+- Script is "confirmed", "finalized", "complete", "done", "完成", "确认"
+- CrePal says "anything else?", "want to proceed?", "shall I continue?" after showing a script
+- **3+ callback rounds have passed** and the latest `agentMsg` has no new questions
+- You replied "looks good" / "confirmed" last round and this round has no new questions
 
-### Step 3 — Confirm & Generate
+→ **IMMEDIATELY go to Step 3.** Do NOT reply via `message/send`. Do NOT ask the user. Call the `confirm_generate` API right now.
 
-1. `POST /api/openclaw/script/confirm_generate` with `{"sessionId": "..."}`. This is a **separate API call**, not a chat message.
+**⚠️ When in doubt between B and C/D, always choose B.** It's better to start generating slightly early than to loop forever. The user wants a video.
+
+#### Case C — CrePal Asks a Question
+`agentMsg` asks a question or offers choices (e.g. "What style?", "(A)... (B)... (C)...").
+→ Compose a direct answer based on the user's original description. Send via `message/send`. Re-poll with `--callback`.
+
+#### Case D — Script Draft Needs Feedback
+`agentMsg` shows a draft and asks "what do you think?" / "does this look good?"
+→ Reply "Looks great, please continue" via `message/send`. Re-poll.
+
+#### Case E — Anything Else
+→ Reply "Looks good, please continue" via `message/send`. Re-poll. Never stay silent.
+
+---
+
+**After acting (all cases):** tell the user in **one friendly sentence** what you did. No technical details.
+
+**After C/D/E:** re-run `poll_session.py` with `--callback`, yield, wait for next callback → return to Step 2.
+
+**🛑 YIELD SELF-CHECK — ask yourself before every yield:**
+> "Have I gone through 3+ rounds? Is the script probably done? Should I call `confirm_generate` instead of looping again?"
+> If the answer is "maybe yes" → call `confirm_generate` (Step 3). Do not loop again.
+
+### Step 3 — Confirm & Generate 🔴
+
+This is the step that **produces the video**. Without it, the user gets nothing.
+
+1. `POST /api/openclaw/script/confirm_generate` with `{"sessionId": "..."}`.
+   This is a **dedicated API call** — NOT a chat message via `message/send`.
 2. Run `poll_session.py` with **`--callback` and `--notify`** (both appropriate now — the job is finishing).
 3. Tell the user: "视频正在生成中！完成后我会通知你 🎬"
 
