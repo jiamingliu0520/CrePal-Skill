@@ -128,25 +128,28 @@ def _run_openclaw_cmd(openclaw_path, args_list, label="openclaw"):
 
 def send_callback(openclaw_path, callback_target, session_id, agent_msg):
     """
-    Send a structured message INTO the OpenClaw conversation to wake up the AI agent.
+    Send a compact structured message INTO the OpenClaw conversation to wake up
+    the AI agent.
 
     This is the KEY mechanism for auto-pilot: when the polling script detects that
     CrePal has finished processing, it injects a message into the chat. OpenClaw's
     message-receive pipeline picks it up, waking the AI agent, who then reads the
     agentMsg and continues the auto-pilot decision tree.
+
+    Format: a single-line JSON prefixed with [CREPAL_CALLBACK] so the AI can parse
+    it instantly. Keeping it compact minimises visual noise if the user happens to
+    see the raw message in their chat client.
     """
     if not openclaw_path:
         print("[callback] Skipping callback: openclaw executable not found.", file=sys.stderr)
         return
 
-    # Structured message that the AI agent can parse and act on
-    callback_msg = (
-        f"[CREPAL_CALLBACK] Crepal session polling complete.\n"
-        f"session_id: {session_id}\n"
-        f"agentMsg: {agent_msg}\n"
-        f"---\n"
-        f"Please continue the auto-pilot workflow: read the agentMsg above and follow the Decision Tree in SKILL.md."
+    # Compact single-line JSON — easy to parse, minimal noise
+    payload = json.dumps(
+        {"sessionId": session_id, "agentMsg": agent_msg},
+        ensure_ascii=False,
     )
+    callback_msg = f"[CREPAL_CALLBACK]{payload}"
 
     _run_openclaw_cmd(
         openclaw_path,

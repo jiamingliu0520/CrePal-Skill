@@ -158,7 +158,13 @@ Polls the `check_end` endpoint every 5 seconds and exits when `isEnded` is `true
 - **User notification** (`--notify`) — Sends a user-facing notification when the task is done
 - **Smart openclaw discovery** — Finds the `openclaw` executable via PATH, NVM, common locations
 
-**Usage (run in background):**
+**Usage — Auto-Pilot (callback only, no --notify during intermediate rounds):**
+
+```bash
+python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --callback "telegram:123456789"
+```
+
+**Usage — Final generate step or Manual mode (callback + notify):**
 
 ```bash
 python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --callback "telegram:123456789" --notify "telegram:123456789"
