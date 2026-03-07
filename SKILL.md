@@ -16,7 +16,7 @@ Crepal is a one-stop AI video creation tool. This skill connects OpenClaw to Cre
 These apply to **everything** you do with this skill.
 
 1. **Never show raw technical output to the user.** No JSON, no session IDs, no HTTP codes, no function-call names, no `[CREPAL_CALLBACK]` content. Summarize in plain, friendly language — as if texting a friend.
-2. **Never stay silent after receiving an `agentMsg`.** Always either reply to CrePal or call `confirm_generate`. No exceptions.
+2. **Never stay silent after receiving an `agentMsg`.** Always either reply to CrePal or call `confirm_generate` — **except** after Step 3 polling completes, where you skip the Decision Tree and go straight to Step 4 (download).
 3. **The `confirm_generate` API is the ONLY way to start video rendering.** Sending a chat message like "please generate" does nothing. You must call the dedicated endpoint.
 4. **Translate errors into actionable advice.** Instead of `HTTP 401`, say "Your API token seems invalid — could you double-check it?"
 5. **Keep progress updates to one sentence.** e.g. "CrePal 问了视频风格，我帮你选了温馨的，正在继续…"
@@ -63,9 +63,14 @@ Active when `auto_pilot` is `true`, or the user explicitly asks for full automat
 
 ### ⚠️ Execution Model — FOREGROUND, NOT BACKGROUND
 
-**You MUST run `poll_session.py` in the foreground** (i.e. `background: false` or simply `exec`). Wait for it to finish and capture its stdout. Do NOT use `background: true` — background mode causes OpenClaw to dump raw script output into the user's chat, and the agent never gets a chance to process it.
+**You MUST run ALL Python scripts (`poll_session.py` AND `poll_download.py`) in the foreground** (i.e. `background: false` or simply `exec`). Wait for them to finish and capture stdout. Do NOT use `background: true` — background mode causes OpenClaw to dump raw script output into the user's chat, and the agent never gets a chance to process it.
 
-The script outputs **only the `agentMsg` text** to stdout (no JSON, no metadata). You capture this text, process it via the Decision Tree, and act on it — all in the same turn.
+- `poll_session.py` outputs **only the `agentMsg` text** to stdout.
+- `poll_download.py` outputs **only the `resultUrl`** to stdout.
+- Both scripts send debug info to stderr only.
+- **Non-zero exit code = error.** Tell the user in friendly language; do NOT show raw error output.
+
+You capture stdout, process it, and act on it — all in the same turn.
 
 ### Step 1 — Create Session & Poll
 
@@ -76,8 +81,9 @@ The script outputs **only the `agentMsg` text** to stdout (no JSON, no metadata)
    ```
    python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>"
    ```
-5. **Capture stdout** — it contains only the `agentMsg` text from CrePal.
-6. **Go to Step 2** with the captured `agentMsg`.
+5. **Check exit code:** non-zero → tell user "和 CrePal 通信时遇到了问题，请检查网络或 API token。" Stop.
+6. **Capture stdout** — it contains only the `agentMsg` text from CrePal.
+7. **Go to Step 2** with the captured `agentMsg`.
 
 ### Step 2 — Process `agentMsg` (SILENT & IMMEDIATE)
 
@@ -121,6 +127,18 @@ After sending a reply to CrePal:
 
 **🛑 LOOP GUARD:** If you've been through 3+ rounds and the latest `agentMsg` has no clear new questions → treat it as Case B and call `confirm_generate`.
 
+### ✅ YIELD SELF-CHECK (mandatory before every turn ends)
+
+Before you finish a turn or yield control back to the user, ask yourself:
+
+> "Have I already called `confirm_generate` for this session?"
+
+- **No, and a script/draft has been discussed** → You probably missed Case B. Go to Step 3 NOW.
+- **No, but CrePal is still asking questions** → Fine, continue the loop.
+- **Yes** → Continue to Step 4 (or you're done).
+
+This check prevents the most common failure mode: the agent replies to CrePal in a loop but never actually triggers video generation.
+
 ### Step 3 — Confirm & Generate 🔴
 
 This step **starts video rendering**. Without it, the user gets nothing.
@@ -132,28 +150,32 @@ This step **starts video rendering**. Without it, the user gets nothing.
    ```
    python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>"
    ```
-4. When the script finishes (all segments rendered), **go to Step 4**.
+4. **Check exit code:**
+   - If **non-zero** → tell user "视频生成过程中出了点问题，请稍后重试或检查你的 API token。" Stop.
+   - If **zero** → capture stdout. This `agentMsg` is a post-rendering summary from CrePal. **Do NOT re-enter the Decision Tree.** Do NOT call `confirm_generate` again. Do NOT reply via `message/send`. Simply **proceed to Step 4**.
 
 ### Step 4 — Compose & Download 🎬
 
 After all video segments are rendered, you must compose the final video and get the download URL.
 
 1. `POST /api/openclaw/download/start` with:
-  ```json
+   ```json
    { "sessionId": "...", "watermark": false, "resolution": 1080 }
    ```
    - `watermark`: `false` by default (no watermark). Set `true` if user explicitly requests one.
    - `resolution`: `1080` by default. Use `720` only if user requests lower quality.
+   - If the API call **fails** (HTTP error / no `downloadId` in response) → tell user "发起视频合成时遇到了问题，请稍后重试。" Stop.
    - Returns `downloadId` and estimated `duration` (seconds).
 2. Tell the user: "视频片段已全部完成，正在合成最终成片…"
 3. **Run `poll_download.py` in FOREGROUND** to wait for composing to finish:
    ```
    python3 scripts/poll_download.py "https://crepal.ai" "<TOKEN>" "<DOWNLOAD_ID>"
    ```
-4. **Capture stdout** — it contains only the `resultUrl` (the download link).
+4. **Check exit code:**
+   - **Non-zero** → tell user "合成视频时遇到了问题，请稍后重试。" Stop.
+   - **Zero** → capture stdout, which contains only the `resultUrl` (the download link).
 5. **Present the download link** to the user in a friendly message:
    - "你的视频已经做好了！🎉 点击下载：<resultUrl>"
-6. If the download fails (script exits with code 1), tell the user: "合成视频时遇到了问题，请稍后重试。"
 
 ---
 
