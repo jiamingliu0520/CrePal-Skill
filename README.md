@@ -124,6 +124,8 @@ The agent will handle the rest based on your mode preference.
 | Get subscription config (plans & Stripe links) | `POST` | `https://crepal.ai/api/openclaw/subscription/config` |
 | Get one-time products config (credits, etc.) | `POST` | `https://crepal.ai/api/openclaw/one_time_products/config` |
 | Confirm script & generate video | `POST` | `https://crepal.ai/api/openclaw/script/confirm_generate` |
+| Start download (compose final video) | `POST` | `https://crepal.ai/api/openclaw/download/start` |
+| Check download status | `POST` | `https://crepal.ai/api/openclaw/download/check` |
 
 All requests require a valid token in the header: `Authorization: Bearer <TOKEN>`.
 
@@ -140,7 +142,8 @@ crepal-video-creator/
 ├── install.sh            # One-line installer
 ├── README.md
 └── scripts/
-    └── poll_session.py   # Poll session status; smart openclaw discovery; notify user when done
+    ├── poll_session.py   # Poll session status; smart openclaw discovery; notify user when done
+    └── poll_download.py  # Poll download/compose status; outputs resultUrl when ready
 ```
 
 ### `metadata.json`
@@ -171,6 +174,14 @@ python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>"
 
 ```bash
 python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SESSION_ID>" --notify "telegram:123456789"
+```
+
+### `scripts/poll_download.py`
+
+Polls the `download/check` endpoint every 5 seconds until the video is composed. Outputs the `resultUrl` (download link) to stdout.
+
+```bash
+python3 scripts/poll_download.py "https://crepal.ai" "<TOKEN>" "<DOWNLOAD_ID>"
 ```
 
 <br>

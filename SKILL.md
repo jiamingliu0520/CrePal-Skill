@@ -27,8 +27,8 @@ These apply to **everything** you do with this skill.
 
 Stored in the skill root directory. Read it on **every** invocation.
 
-```json
-{
+  ```json
+  {
   "api_key": "",
   "user_channel": "",
   "auto_pilot": false,
@@ -123,16 +123,37 @@ After sending a reply to CrePal:
 
 ### Step 3 — Confirm & Generate 🔴
 
-This step **produces the video**. Without it, the user gets nothing.
+This step **starts video rendering**. Without it, the user gets nothing.
 
 1. `POST /api/openclaw/script/confirm_generate` with `{"sessionId": "..."}`.
    This is a **dedicated API call** — NOT a chat message via `message/send`.
-2. Tell the user: "剧本已确认，视频正在生成中！完成后我会通知你 🎬"
-3. **Run `poll_session.py` in FOREGROUND** with `--notify` to send the user a notification when done:
+2. Tell the user: "剧本已确认，视频片段正在生成中，请稍等…"
+3. **Run `poll_session.py` in FOREGROUND** to wait for rendering to finish:
    ```
-   python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>" --notify "<CHANNEL>"
+   python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>"
    ```
-4. When the script finishes, the user has already been notified. You can add a friendly closing message.
+4. When the script finishes (all segments rendered), **go to Step 4**.
+
+### Step 4 — Compose & Download 🎬
+
+After all video segments are rendered, you must compose the final video and get the download URL.
+
+1. `POST /api/openclaw/download/start` with:
+  ```json
+   { "sessionId": "...", "watermark": false, "resolution": 1080 }
+   ```
+   - `watermark`: `false` by default (no watermark). Set `true` if user explicitly requests one.
+   - `resolution`: `1080` by default. Use `720` only if user requests lower quality.
+   - Returns `downloadId` and estimated `duration` (seconds).
+2. Tell the user: "视频片段已全部完成，正在合成最终成片…"
+3. **Run `poll_download.py` in FOREGROUND** to wait for composing to finish:
+   ```
+   python3 scripts/poll_download.py "https://crepal.ai" "<TOKEN>" "<DOWNLOAD_ID>"
+   ```
+4. **Capture stdout** — it contains only the `resultUrl` (the download link).
+5. **Present the download link** to the user in a friendly message:
+   - "你的视频已经做好了！🎉 点击下载：<resultUrl>"
+6. If the download fails (script exits with code 1), tell the user: "合成视频时遇到了问题，请稍后重试。"
 
 ---
 
@@ -149,6 +170,11 @@ Active when `auto_pilot` is `false`. You pause at each step for user input.
 **Confirming generation in manual mode:**
 - User says "looks good" / "continue" about a **script** → use `message/send`.
 - User says "start generating the video" → use `confirm_generate`.
+
+**Composing the final video (after rendering is done):**
+1. Call `POST /api/openclaw/download/start` with `sessionId`, `watermark`, `resolution`.
+2. Run `poll_download.py` in FOREGROUND. Capture `resultUrl` from stdout.
+3. Present the download link to the user.
 
 ---
 
@@ -171,7 +197,7 @@ Triggered when `agentMsg` or any API response mentions insufficient credits.
 
 ### Create Session
 `POST /api/openclaw/chat/session/create`
-```json
+  ```json
 { "content": "Help me generate a short video script" }
 ```
 Returns `sessionId`, `messageId`, `status`.
@@ -193,10 +219,28 @@ Returns `{ "data": { "sessionId", "isEnded", "agentMsg" } }`.
 
 ### Confirm Script & Generate
 `POST /api/openclaw/script/confirm_generate`
-```json
+  ```json
 { "sessionId": "..." }
 ```
 Starts video rendering. You **must** poll afterwards.
+
+### Start Download (Compose Final Video)
+`POST /api/openclaw/download/start`
+```json
+{ "sessionId": "...", "watermark": false, "resolution": 1080 }
+```
+- `watermark` (boolean): whether to add watermark. Default `false`.
+- `resolution` (integer): `720` or `1080`. Default `1080`.
+- Returns `downloadId` (string) and `duration` (estimated seconds).
+
+### Check Download Status
+`POST /api/openclaw/download/check`
+```json
+{ "downloadId": "..." }
+```
+Returns `{ "data": { "status": "pending|success|failed", "resultUrl": "..." } }`.
+- `resultUrl` is the download link when `status` is `"success"`.
+- **Note:** `poll_download.py` automates this — you rarely call it directly.
 
 ### Get Subscription Config
 `POST /api/openclaw/subscription/config`  
@@ -228,6 +272,15 @@ Polls `check_end` every 5 s until `isEnded` is true.
 # Primary: foreground, agent captures stdout (use this in auto-pilot)
 python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>"
 
-# Final generate step: foreground + user notification
+# With user notification (final step or manual mode)
 python3 scripts/poll_session.py "https://crepal.ai" "<TOKEN>" "<SID>" --notify "<CHANNEL>"
+```
+
+### `scripts/poll_download.py`
+Polls `download/check` every 5 s until `status` is `success` or `failed`.
+
+**Output:** prints only the `resultUrl` to stdout when done. All debug to stderr.
+
+```bash
+python3 scripts/poll_download.py "https://crepal.ai" "<TOKEN>" "<DOWNLOAD_ID>"
 ```
